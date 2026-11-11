@@ -169,6 +169,27 @@ def suspicion(view):
                     if tvote == tgt:
                         score[voter] = score.get(voter, 0) + 3
 
+    # statement-reading: repeated loud accusations of a player who then turns out
+    # innocent is a wolf/pusher tell; so is contradicting oneself heavily.
+    # We keep it conservative — a single clear signal is worth more than noise.
+    streets = {}  # seat -> lowercase text of every statement
+    for e in view.get("log", []):
+        if e.get("kind") == "speech" and e.get("text"):
+            streets.setdefault(e["seat"], []).append((e["text"] or "").lower())
+    for seat, msgs in streets.items():
+        if seat == me or seat not in alive:
+            continue
+        total = " ".join(msgs)
+        # wolf-pusher tell: only ever talks about exiling one person, with strong claims
+        seats_mentioned = [w for w in total.replace(",", " ").split() if w.isdigit() and 1 <= int(w) <= 8]
+        if seats_mentioned:
+            from collections import Counter
+            c = Counter(seats_mentioned)
+            top_s, top_n = c.most_common(1)[0]
+            # hyper-single-target voters look like they're driving a wagon
+            if top_n >= 3 and len(c) <= 2:
+                score[int(top_s)] = score.get(int(top_s), 0) + 2
+
     return {s: sc for s, sc in score.items() if s != me}
 
 
@@ -224,12 +245,24 @@ def say(text):
 def decide_inspect(view, options):
     me = my_seat(view)
     checked = {r.get("seat") for r in view.get("seerResults") or []}
-    ok = [o for o in options if o != me and o not in checked]
-    if not ok:
-        ok = [o for o in options if o != me]
-    if not ok:
+    unc = [o for o in options if o != me and o not in checked]
+    if not unc:
         return {"target": None}
-    return {"target": options and rng_for(view.get("game", 0)).choice(ok)}
+    # Inspect the most-accused living player: wagons and repeated accusation are
+    # where a wolf is likeliest to sit. Fall back to the first unchecked seat.
+    accus = {}
+    for e in view.get("log", []):
+        if e.get("kind") == "speech":
+            txt = (e.get("text") or "")
+            # find "seat N" / "player N" references directed at others
+            for tok in txt.split():
+                if tok.isdigit() and 1 <= int(tok) <= 8:
+                    t = int(tok)
+                    if t != me and t in unc:
+                        accus[t] = accus.get(t, 0) + 1
+    if accus:
+        return {"target": max(accus, key=lambda s: accus[s])}
+    return {"target": unc[0]}
 
 
 def decide_protect(view, options):
