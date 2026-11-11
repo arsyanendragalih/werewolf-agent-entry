@@ -411,13 +411,18 @@ def speak_villager(view, max_chars):
 
 def speak_doctor(view, max_chars):
     # act villager-like but hint protect seer
-    s = top_suspect(view)
+    me = my_seat(view)
     alive = {p["seat"] for p in alive_players(view)}
     for e in view.get("log", []):
-        if e.get("kind") == "speech" and "seer" in (e.get("text") or "") and e.get("seat") != my_seat(view) and e.get("seat") in alive:
-            t = say("I think we should hear seat 2's seer claim and protect our information role tonight.")
+        if e.get("kind") == "speech" and "seer" in (e.get("text") or "") and e.get("seat") != me and e.get("seat") in alive:
+            c = e["seat"]
+            t = say(f"I think we should hear seat {c}'s seer claim and protect our information role tonight.")
             cap(t, max_chars)
             return t
+    s = confident_suspect(view)
+    if s is None:
+        _, plural = vote_tally(view)
+        s = plural
     t = (say(f"My vote is on seat {s}.") if s else {"pass": True})
     cap(t, max_chars)
     return t
